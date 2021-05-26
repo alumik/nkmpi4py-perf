@@ -1,5 +1,7 @@
 # Performance Tests for nkmpi4py
 
+[![license-MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/AlumiK/nkmpi4py-perf/blob/main/LICENSE)
+
 This repository tests the performance of 4 types of training strategies using Slurm Workload Manager:
 
 - Non-distributed training
