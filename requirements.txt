@@ -1,5 +1,5 @@
 fire
 tensorflow
 python-hostlist
-nkmpi4py
 mpi4py
+git+https://github.com/alumik/nkmpi4py.git
