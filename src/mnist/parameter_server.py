@@ -55,7 +55,7 @@ def main(learning_rate: float = 0.001,
         'n_block': n_block
     }
 
-    strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy()
+    strategy = tf.distribute.experimental.ParameterServerStrategy()
 
     global_batch_size = batch_size * n_tasks
     multi_worker_dataset = mnist_dataset(global_batch_size)
@@ -74,17 +74,40 @@ def main(learning_rate: float = 0.001,
 
 
 if __name__ == '__main__':
-    task_index = int(os.environ['SLURM_PROCID'])
-    n_tasks = int(os.environ['SLURM_NPROCS'])
-    tf_host_list = [f'{host}:22222' for host in hostlist.expand_hostlist(os.environ['SLURM_NODELIST'])]
+    # Using Slurm
+    # import hostlist
+    #
+    # task_index = int(os.environ['SLURM_PROCID'])
+    # n_tasks = int(os.environ['SLURM_NPROCS'])
+    # tf_host_list = [f'{host}:22222' for host in hostlist.expand_hostlist(os.environ['SLURM_NODELIST'])]
+
+    # Using MPI
+    from mpi4py import MPI
+
+    comm = MPI.COMM_WORLD
+    task_index = comm.Get_rank()
+    n_tasks = comm.Get_size()
+    tf_host_list = [f'localhost:{22222 + i}' for i in range(n_tasks)]
+
+    local_task_index = 0
+    if task_index == 0:
+        task_type = 'chief'
+    elif task_index == 1:
+        task_type = 'ps'
+    else:
+        task_type = 'worker'
+        local_task_index = task_index - 2
     tf_config = {
         'cluster': {
-            'worker': tf_host_list
+            'chief': tf_host_list[0:1],
+            'ps': tf_host_list[1:2],
+            'worker': tf_host_list[2:]
         },
         'task': {
-            'type': 'worker',
-            'index': task_index
+            'type': task_type,
+            'index': local_task_index
         }
     }
     os.environ['TF_CONFIG'] = json.dumps(tf_config)
+    tf.compat.v1.disable_eager_execution()
     fire.Fire(main)

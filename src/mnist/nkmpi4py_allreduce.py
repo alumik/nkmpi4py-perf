@@ -57,7 +57,7 @@ def main(learning_rate: float = 0.001,
          block_hidden_dims: Sequence = (64, 64),
          n_block: int = 2,
          dropout_rate: float = 0.2,
-         allreduce_dims: Sequence = (10, 10, 5)):
+         allreduce_dims: Sequence = (10,)):
     s_time = time.time()
 
     configs = {
