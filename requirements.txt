@@ -1,5 +1,5 @@
 fire
-tensorflow
+tensorflow==2.2.2
 python-hostlist
 mpi4py
 git+https://github.com/alumik/nkmpi4py.git

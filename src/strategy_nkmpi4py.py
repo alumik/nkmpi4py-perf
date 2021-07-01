@@ -1,45 +1,15 @@
 import fire
 import time
-import tensorflow as tf
 
 from mpi4py import MPI
 from nkmpi4py import NKMPI_TF
-from typing import Sequence, Tuple, Dict, Optional
+from typing import Sequence, Tuple
+from utils import *
+from models import *
 
 
-def mnist_dataset(comm, batch_size: int = 64) -> tf.data.Dataset:
-    size = comm.Get_size()
-    rank = comm.Get_rank()
-    (x_train, y_train), _ = tf.keras.datasets.mnist.load_data()
-    x_train = x_train / 255.0
-    n_train_proc = len(x_train) // size
-    x_train_proc = x_train[rank * n_train_proc:(rank + 1) * n_train_proc]
-    y_train_proc = y_train[rank * n_train_proc:(rank + 1) * n_train_proc]
-    dataset = tf.data.Dataset \
-        .from_tensor_slices((x_train_proc, y_train_proc)) \
-        .shuffle(n_train_proc) \
-        .repeat() \
-        .batch(batch_size)
-    return dataset
-
-
-def get_model(comm, configs: Optional[Dict] = None) -> tf.keras.Model:
-    i = tf.keras.Input(shape=(28, 28))
-    x = tf.keras.layers.Flatten()(i)
-    for input_dim in configs.get('input_hidden_dims', (128,)):
-        x = tf.keras.layers.Dense(input_dim, activation='relu')(x)
-
-    n_block = configs.get('n_block', 2)
-    block_hidden_dims = configs.get('block_hidden_dims', (64, 64))
-    for _ in range(n_block):
-        for block_dim in block_hidden_dims:
-            x = tf.keras.layers.Dense(block_dim, activation='relu')(x)
-
-    x = tf.keras.layers.Dropout(configs.get('dropout_rate', 0.2))(x)
-    x = tf.keras.layers.Dense(10, activation='softmax')(x)
-
-    model = tf.keras.Model(i, x)
-
+def get_mpi_model(comm, configs: Optional[Dict] = None) -> tf.keras.Model:
+    model = get_model(configs)
     rank = comm.Get_rank()
     weights = None
     if rank == 0:
@@ -53,29 +23,25 @@ def main(learning_rate: float = 0.001,
          batch_size: int = 64,
          epochs: int = 10,
          steps_per_epoch: int = 70,
-         input_hidden_dims: Sequence = (128,),
          block_hidden_dims: Sequence = (64, 64),
          n_block: int = 2,
-         dropout_rate: float = 0.2,
          allreduce_dims: Sequence = (10,)):
     s_time = time.time()
 
     configs = {
-        'input_hidden_dims': input_hidden_dims,
         'block_hidden_dims': block_hidden_dims,
-        'dropout_rate': dropout_rate,
         'n_block': n_block
     }
 
     comm = MPI.COMM_WORLD
     comm = NKMPI_TF.Comm(comm, new_dims=allreduce_dims)
 
-    multi_worker_dataset = mnist_dataset(comm=comm, batch_size=batch_size)
+    multi_worker_dataset = mnist_mpi_dataset(comm=comm, batch_size=batch_size)
 
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
     metrics = tf.keras.metrics.SparseCategoricalAccuracy()
-    model = get_model(comm=comm, configs=configs)
+    model = get_mpi_model(comm=comm, configs=configs)
 
     def train_step(_x: tf.Tensor, _y: tf.Tensor) -> Tuple:
         with tf.GradientTape() as tape:
@@ -89,9 +55,7 @@ def main(learning_rate: float = 0.001,
         _acc = comm.allreduce(metrics.result().numpy(), op=MPI.SUM) / comm.Get_size()
         return _loss, _acc
 
-    print('Training')
     for epoch in range(epochs):
-        print(f'Epoch {epoch + 1}/{epochs}')
         progbar = tf.keras.utils.Progbar(steps_per_epoch, stateful_metrics=['loss'])
         dataset_iter = iter(multi_worker_dataset)
         for _ in range(steps_per_epoch):
